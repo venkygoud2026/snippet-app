@@ -2,67 +2,151 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Direct Web Snapshot Tool</title>
-  <!-- Load html2canvas engine for direct DOM rendering -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <title>Drag & Drop Instant Snapshot Tool</title>
+  <!-- PDF rendering engine for dragging PDF documents -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
-    body { font-family: sans-serif; background: #121212; color: white; padding: 20px; text-align: center; }
-    .controls { margin-bottom: 20px; }
-    button { padding: 12px 24px; font-size: 16px; margin: 10px; cursor: pointer; border-radius: 6px; border: none; font-weight: bold; }
-    .btn-snap { background: #28a745; color: white; }
-    .btn-stream { background: #007bff; color: white; }
-    #captureArea { border: 2px dashed #444; padding: 20px; background: #1e1e1e; border-radius: 8px; margin: 0 auto; max-width: 900px; }
-    video { width: 100%; border: 1px solid #555; border-radius: 6px; }
+    body { font-family: sans-serif; background: #121212; color: #ffffff; text-align: center; margin: 0; padding: 20px; }
+    h2 { margin-bottom: 5px; }
+    p { color: #aaa; margin-bottom: 20px; }
+    
+    #dropZone {
+      border: 3px dashed #007bff;
+      border-radius: 12px;
+      padding: 50px 20px;
+      max-width: 700px;
+      margin: 0 auto 20px auto;
+      background: #1e1e1e;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    #dropZone.hover { background: #2a2a2a; border-color: #28a745; }
+    
+    .btn-save {
+      background: #28a745; color: white; padding: 12px 24px; font-size: 16px; 
+      border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-bottom: 20px;
+    }
+    .btn-save:disabled { background: #555; cursor: not-allowed; }
+    
+    #previewContainer {
+      max-width: 900px; margin: 0 auto; overflow: auto; border: 1px solid #444; border-radius: 8px; padding: 10px; background: #000;
+    }
+    canvas { max-width: 100%; height: auto; display: block; margin: 0 auto; }
   </style>
 </head>
 <body>
 
-  <h2>Web Screen Snapshot Engine</h2>
+  <h2>Drag & Drop Snapshot Studio</h2>
+  <p>Drag any Image, PDF file, or Web content into the area below. No popups or screen permissions required!</p>
 
-  <div class="controls">
-    <button class="btn-snap" onclick="takeDirectDomSnap()">1. DIRECT DOM SNAP (No Popup Needed)</button>
-    <button class="btn-stream" onclick="initScreenStream()">2. ENABLE CONTINUOUS SCREEN SCAN</button>
+  <div id="dropZone">
+    <h3 id="dropStatus">📥 Drag & Drop Files / Web Images Here</h3>
+    <small>Supports JPG, PNG, WEBP, PDF, and direct image links</small>
   </div>
 
-  <div id="captureArea">
-    <h3>Live Content Viewer</h3>
-    <video id="screenVideo" autoplay muted></video>
-  </div>
+  <button id="saveBtn" class="btn-save" onclick="downloadSnapshot()" disabled>DOWNLOAD SNAPSHOT (.PNG)</button>
 
-  <canvas id="canvas" style="display:none;"></canvas>
+  <div id="previewContainer">
+    <canvas id="snapshotCanvas"></canvas>
+  </div>
 
   <script>
-    let video = document.getElementById('screenVideo');
-    let streamActive = false;
+    const dropZone = document.getElementById('dropZone');
+    const canvas = document.getElementById('snapshotCanvas');
+    const ctx = canvas.getContext('2d');
+    const saveBtn = document.getElementById('saveBtn');
+    const dropStatus = document.getElementById('dropStatus');
 
-    // METHOD A: Direct DOM Snapshot (Bypasses all permission popups)
-    function takeDirectDomSnap() {
-      html2canvas(document.body).then(canvas => {
-        let link = document.createElement('a');
-        link.download = `DirectSnap_${Date.now()}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-      }).catch(err => {
-        alert("DOM Snapshot failed: " + err);
+    // Dragover styling
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        dropZone.classList.add('hover');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('hover');
+      }, false);
+    });
+
+    // Handle Dropped Content
+    dropZone.addEventListener('drop', (e) => {
+      const files = e.dataTransfer.files;
+      const htmlData = e.dataTransfer.getData('text/html');
+
+      if (files.length > 0) {
+        processFile(files[0]);
+      } else if (htmlData) {
+        // Handle images dragged directly from another browser window
+        const regex = /src=["'](.*?)["']/;
+        const match = regex.exec(htmlData);
+        if (match && match[1]) {
+          renderImageUrl(match[1]);
+        }
+      }
+    });
+
+    // Process Dropped Files (Images & PDFs)
+    function processFile(file) {
+      dropStatus.innerText = `Processing: ${file.name}`;
+      
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (event) => renderImageUrl(event.target.result);
+        reader.readAsDataURL(file);
+      } else if (file.type === 'application/pdf') {
+        const reader = new FileReader();
+        reader.onload = (event) => renderPdf(event.target.result);
+        reader.readAsArrayBuffer(file);
+      } else {
+        alert("Unsupported file format. Please drop an Image or PDF.");
+      }
+    }
+
+    // Render Image to Canvas
+    function renderImageUrl(url) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        saveBtn.disabled = false;
+        dropStatus.innerText = "Snapshot Ready!";
+      };
+      img.src = url;
+    }
+
+    // Render PDF Page to Canvas
+    function renderPdf(arrayBuffer) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+      pdfjsLib.getDocument({ data: arrayBuffer }).promise.then(pdf => {
+        pdf.getPage(1).then(page => {
+          const viewport = page.getViewport({ scale: 1.5 });
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          
+          const renderContext = {
+            canvasContext: ctx,
+            viewport: viewport
+          };
+          page.render(renderContext).promise.then(() => {
+            saveBtn.disabled = false;
+            dropStatus.innerText = "PDF Page Snapshot Ready!";
+          });
+        });
       });
     }
 
-    // METHOD B: Robust Screen Capture with Auto-Recovery
-    async function initScreenStream() {
-      try {
-        let stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { displaySurface: "monitor" }
-        });
-        video.srcObject = stream;
-        streamActive = true;
-        alert("Screen connection active! You can now capture frames.");
-      } catch (err) {
-        if (err.name === 'NotAllowedError') {
-          alert("Selection Cancelled: Please click 'Select Screen' again and choose a screen window from the popup.");
-        } else {
-          alert("Security restriction: Ensure you are accessing this via GitHub HTTPS link (https://).");
-        }
-      }
+    // Download the final Snapshot
+    function downloadSnapshot() {
+      const link = document.createElement('a');
+      link.download = `Snap_${Date.now()}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
     }
   </script>
 </body>
