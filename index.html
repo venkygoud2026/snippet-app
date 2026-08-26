@@ -2,18 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Drag & Drop Instant Snapshot Tool</title>
-  <!-- PDF rendering engine for dragging PDF documents -->
+  <title>Snapshot Studio - Drag & Click Tool</title>
+  <!-- Load PDF rendering library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
-    body { font-family: sans-serif; background: #121212; color: #ffffff; text-align: center; margin: 0; padding: 20px; }
+    body { font-family: Arial, sans-serif; background: #121212; color: #ffffff; text-align: center; margin: 0; padding: 20px; }
     h2 { margin-bottom: 5px; }
     p { color: #aaa; margin-bottom: 20px; }
     
     #dropZone {
       border: 3px dashed #007bff;
       border-radius: 12px;
-      padding: 50px 20px;
+      padding: 40px 20px;
       max-width: 700px;
       margin: 0 auto 20px auto;
       background: #1e1e1e;
@@ -23,26 +23,30 @@
     #dropZone.hover { background: #2a2a2a; border-color: #28a745; }
     
     .btn-save {
-      background: #28a745; color: white; padding: 12px 24px; font-size: 16px; 
+      background: #28a745; color: white; padding: 14px 28px; font-size: 16px; 
       border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-bottom: 20px;
     }
-    .btn-save:disabled { background: #555; cursor: not-allowed; }
+    .btn-save:disabled { background: #444; cursor: not-allowed; }
     
     #previewContainer {
-      max-width: 900px; margin: 0 auto; overflow: auto; border: 1px solid #444; border-radius: 8px; padding: 10px; background: #000;
+      max-width: 900px; margin: 0 auto; overflow: auto; border: 1px solid #333; border-radius: 8px; padding: 10px; background: #000;
     }
     canvas { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+    #fileInput { display: none; }
   </style>
 </head>
 <body>
 
-  <h2>Drag & Drop Snapshot Studio</h2>
-  <p>Drag any Image, PDF file, or Web content into the area below. No popups or screen permissions required!</p>
+  <h2>Snapshot Studio</h2>
+  <p>Drag any Image/PDF here OR click the box to upload directly!</p>
 
+  <!-- Dual Click & Drag Target Zone -->
   <div id="dropZone">
-    <h3 id="dropStatus">📥 Drag & Drop Files / Web Images Here</h3>
-    <small>Supports JPG, PNG, WEBP, PDF, and direct image links</small>
+    <h3 id="dropStatus">📥 Drag & Drop File Here<br><span style="font-size:14px; font-weight:normal; color:#007bff;">(Or Click to Browse Files)</span></h3>
   </div>
+
+  <!-- Hidden Native Input Trigger -->
+  <input type="file" id="fileInput" accept="image/*,.pdf">
 
   <button id="saveBtn" class="btn-save" onclick="downloadSnapshot()" disabled>DOWNLOAD SNAPSHOT (.PNG)</button>
 
@@ -52,15 +56,26 @@
 
   <script>
     const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
     const canvas = document.getElementById('snapshotCanvas');
     const ctx = canvas.getContext('2d');
     const saveBtn = document.getElementById('saveBtn');
     const dropStatus = document.getElementById('dropStatus');
 
-    // Dragover styling
+    // 1. Click-to-Browse Event Trigger
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        processFile(e.target.files[0]);
+      }
+    });
+
+    // 2. Drag and Drop Handling Events
     ['dragenter', 'dragover'].forEach(eventName => {
       dropZone.addEventListener(eventName, (e) => {
         e.preventDefault();
+        e.stopPropagation();
         dropZone.classList.add('hover');
       }, false);
     });
@@ -68,28 +83,21 @@
     ['dragleave', 'drop'].forEach(eventName => {
       dropZone.addEventListener(eventName, (e) => {
         e.preventDefault();
+        e.stopPropagation();
         dropZone.classList.remove('hover');
       }, false);
     });
 
-    // Handle Dropped Content
     dropZone.addEventListener('drop', (e) => {
-      const files = e.dataTransfer.files;
-      const htmlData = e.dataTransfer.getData('text/html');
+      const dt = e.dataTransfer;
+      const files = dt.files;
 
       if (files.length > 0) {
         processFile(files[0]);
-      } else if (htmlData) {
-        // Handle images dragged directly from another browser window
-        const regex = /src=["'](.*?)["']/;
-        const match = regex.exec(htmlData);
-        if (match && match[1]) {
-          renderImageUrl(match[1]);
-        }
       }
     });
 
-    // Process Dropped Files (Images & PDFs)
+    // 3. File Processing Core Logic
     function processFile(file) {
       dropStatus.innerText = `Processing: ${file.name}`;
       
@@ -102,25 +110,25 @@
         reader.onload = (event) => renderPdf(event.target.result);
         reader.readAsArrayBuffer(file);
       } else {
-        alert("Unsupported file format. Please drop an Image or PDF.");
+        alert("Please upload or drop a valid Image or PDF file.");
+        dropStatus.innerText = "Error: Unsupported File Type";
       }
     }
 
-    // Render Image to Canvas
+    // Render Images onto HTML Canvas
     function renderImageUrl(url) {
       const img = new Image();
-      img.crossOrigin = "anonymous";
       img.onload = () => {
         canvas.width = img.width;
         canvas.height = img.height;
         ctx.drawImage(img, 0, 0);
         saveBtn.disabled = false;
-        dropStatus.innerText = "Snapshot Ready!";
+        dropStatus.innerText = "✅ Snapshot Ready for Download!";
       };
       img.src = url;
     }
 
-    // Render PDF Page to Canvas
+    // Render PDF Pages onto HTML Canvas
     function renderPdf(arrayBuffer) {
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
       pdfjsLib.getDocument({ data: arrayBuffer }).promise.then(pdf => {
@@ -135,16 +143,16 @@
           };
           page.render(renderContext).promise.then(() => {
             saveBtn.disabled = false;
-            dropStatus.innerText = "PDF Page Snapshot Ready!";
+            dropStatus.innerText = "✅ PDF Snapshot Ready!";
           });
         });
       });
     }
 
-    // Download the final Snapshot
+    // 4. Instant Download Action
     function downloadSnapshot() {
       const link = document.createElement('a');
-      link.download = `Snap_${Date.now()}.png`;
+      link.download = `Snapshot_${Date.now()}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
     }
