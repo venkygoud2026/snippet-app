@@ -2,158 +2,146 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Snapshot Studio - Drag & Click Tool</title>
-  <!-- Load PDF rendering library -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <title>Region Crop Screen Snipping Tool</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #121212; color: #ffffff; text-align: center; margin: 0; padding: 20px; }
-    h2 { margin-bottom: 5px; }
-    p { color: #aaa; margin-bottom: 20px; }
+    body { font-family: Arial, sans-serif; background: #121212; color: #fff; text-align: center; margin: 0; padding: 20px; }
+    button { padding: 12px 24px; font-size: 15px; margin: 10px; cursor: pointer; border-radius: 6px; border: none; font-weight: bold; }
+    .btn-start { background: #007bff; color: white; }
+    .btn-crop { background: #28a745; color: white; }
+    .btn-crop:disabled { background: #444; cursor: not-allowed; }
     
-    #dropZone {
-      border: 3px dashed #007bff;
-      border-radius: 12px;
-      padding: 40px 20px;
-      max-width: 700px;
-      margin: 0 auto 20px auto;
-      background: #1e1e1e;
-      cursor: pointer;
-      transition: background 0.2s, border-color 0.2s;
+    /* Fullscreen Snipping Overlay */
+    #overlay {
+      display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0, 0, 0, 0.5); cursor: crosshair; z-index: 9999;
     }
-    #dropZone.hover { background: #2a2a2a; border-color: #28a745; }
+    #selectionBox {
+      border: 2px dashed #00ffcc; background: rgba(0, 255, 204, 0.15);
+      position: absolute; display: none; pointer-events: none;
+    }
     
-    .btn-save {
-      background: #28a745; color: white; padding: 14px 28px; font-size: 16px; 
-      border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-bottom: 20px;
-    }
-    .btn-save:disabled { background: #444; cursor: not-allowed; }
-    
-    #previewContainer {
-      max-width: 900px; margin: 0 auto; overflow: auto; border: 1px solid #333; border-radius: 8px; padding: 10px; background: #000;
-    }
-    canvas { max-width: 100%; height: auto; display: block; margin: 0 auto; }
-    #fileInput { display: none; }
+    #previewContainer { margin-top: 20px; border: 1px solid #444; padding: 10px; display: inline-block; background: #000; border-radius: 8px; }
+    canvas { max-width: 100%; height: auto; }
   </style>
 </head>
 <body>
 
-  <h2>Snapshot Studio</h2>
-  <p>Drag any Image/PDF here OR click the box to upload directly!</p>
+  <h2>Interactive Region Snipping Tool</h2>
+  <p>Stream your target tab or screen, then drag a crop box to snap any exact region!</p>
 
-  <!-- Dual Click & Drag Target Zone -->
-  <div id="dropZone">
-    <h3 id="dropStatus">📥 Drag & Drop File Here<br><span style="font-size:14px; font-weight:normal; color:#007bff;">(Or Click to Browse Files)</span></h3>
+  <button class="btn-start" onclick="startStream()">1. START SCREEN SCAN</button>
+  <button id="cropBtn" class="btn-crop" onclick="openSnipper()" disabled>2. CAPTURE & CROP AREA</button>
+
+  <video id="hiddenVideo" autoplay style="display:none;"></video>
+
+  <div id="overlay">
+    <div id="selectionBox"></div>
   </div>
 
-  <!-- Hidden Native Input Trigger -->
-  <input type="file" id="fileInput" accept="image/*,.pdf">
-
-  <button id="saveBtn" class="btn-save" onclick="downloadSnapshot()" disabled>DOWNLOAD SNAPSHOT (.PNG)</button>
-
   <div id="previewContainer">
-    <canvas id="snapshotCanvas"></canvas>
+    <h3>Selected Region Snapshot:</h3>
+    <canvas id="outputCanvas"></canvas>
+    <br><br>
+    <button id="downloadBtn" class="btn-crop" onclick="downloadSnap()" style="display:none;">DOWNLOAD REGION (.PNG)</button>
   </div>
 
   <script>
-    const dropZone = document.getElementById('dropZone');
-    const fileInput = document.getElementById('fileInput');
-    const canvas = document.getElementById('snapshotCanvas');
-    const ctx = canvas.getContext('2d');
-    const saveBtn = document.getElementById('saveBtn');
-    const dropStatus = document.getElementById('dropStatus');
+    const video = document.getElementById('hiddenVideo');
+    const cropBtn = document.getElementById('cropBtn');
+    const overlay = document.getElementById('overlay');
+    const selectionBox = document.getElementById('selectionBox');
+    const outputCanvas = document.getElementById('outputCanvas');
+    const downloadBtn = document.getElementById('downloadBtn');
 
-    // 1. Click-to-Browse Event Trigger
-    dropZone.addEventListener('click', () => fileInput.click());
+    let startX, startY, endX, endY;
+    let isSelecting = false;
 
-    fileInput.addEventListener('change', (e) => {
-      if (e.target.files.length > 0) {
-        processFile(e.target.files[0]);
-      }
-    });
-
-    // 2. Drag and Drop Handling Events
-    ['dragenter', 'dragover'].forEach(eventName => {
-      dropZone.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.add('hover');
-      }, false);
-    });
-
-    ['dragleave', 'drop'].forEach(eventName => {
-      dropZone.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.remove('hover');
-      }, false);
-    });
-
-    dropZone.addEventListener('drop', (e) => {
-      const dt = e.dataTransfer;
-      const files = dt.files;
-
-      if (files.length > 0) {
-        processFile(files[0]);
-      }
-    });
-
-    // 3. File Processing Core Logic
-    function processFile(file) {
-      dropStatus.innerText = `Processing: ${file.name}`;
-      
-      if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onload = (event) => renderImageUrl(event.target.result);
-        reader.readAsDataURL(file);
-      } else if (file.type === 'application/pdf') {
-        const reader = new FileReader();
-        reader.onload = (event) => renderPdf(event.target.result);
-        reader.readAsArrayBuffer(file);
-      } else {
-        alert("Please upload or drop a valid Image or PDF file.");
-        dropStatus.innerText = "Error: Unsupported File Type";
+    // 1. Connect Screen Feed
+    async function startStream() {
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "monitor" } });
+        video.srcObject = stream;
+        cropBtn.disabled = false;
+        alert("Screen connected! Click 'CAPTURE & CROP AREA' to drag and select your crop region.");
+      } catch (err) {
+        alert("Screen stream permission is required for the drag cursor to select areas.");
       }
     }
 
-    // Render Images onto HTML Canvas
-    function renderImageUrl(url) {
-      const img = new Image();
-      img.onload = () => {
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0);
-        saveBtn.disabled = false;
-        dropStatus.innerText = "✅ Snapshot Ready for Download!";
-      };
-      img.src = url;
+    // 2. Open Drag Overlay
+    function openSnipper() {
+      if (!video.srcObject) return;
+      overlay.style.display = 'block';
     }
 
-    // Render PDF Pages onto HTML Canvas
-    function renderPdf(arrayBuffer) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-      pdfjsLib.getDocument({ data: arrayBuffer }).promise.then(pdf => {
-        pdf.getPage(1).then(page => {
-          const viewport = page.getViewport({ scale: 1.5 });
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          
-          const renderContext = {
-            canvasContext: ctx,
-            viewport: viewport
-          };
-          page.render(renderContext).promise.then(() => {
-            saveBtn.disabled = false;
-            dropStatus.innerText = "✅ PDF Snapshot Ready!";
-          });
-        });
-      });
+    // 3. Drag Selection Mouse Events
+    overlay.addEventListener('mousedown', (e) => {
+      isSelecting = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      selectionBox.style.left = `${startX}px`;
+      selectionBox.style.top = `${startY}px`;
+      selectionBox.style.width = '0px';
+      selectionBox.style.height = '0px';
+      selectionBox.style.display = 'block';
+    });
+
+    overlay.addEventListener('mousemove', (e) => {
+      if (!isSelecting) return;
+      endX = e.clientX;
+      endY = e.clientY;
+
+      const width = Math.abs(endX - startX);
+      const height = Math.abs(endY - startY);
+      const left = Math.min(startX, endX);
+      const top = Math.min(startY, endY);
+
+      selectionBox.style.width = `${width}px`;
+      selectionBox.style.height = `${height}px`;
+      selectionBox.style.left = `${left}px`;
+      selectionBox.style.top = `${top}px`;
+    });
+
+    overlay.addEventListener('mouseup', () => {
+      if (!isSelecting) return;
+      isSelecting = false;
+      overlay.style.display = 'none';
+      selectionBox.style.display = 'none';
+
+      cropAndRenderRegion();
+    });
+
+    // 4. Crop Exact Region to Canvas
+    function cropAndRenderRegion() {
+      const rectLeft = Math.min(startX, endX);
+      const rectTop = Math.min(startY, endY);
+      const rectWidth = Math.abs(endX - startX);
+      const rectHeight = Math.abs(endY - startY);
+
+      if (rectWidth < 10 || rectHeight < 10) return; // Prevent accidental tiny clicks
+
+      // Scale coordinates to match actual video stream dimensions
+      const scaleX = video.videoWidth / window.innerWidth;
+      const scaleY = video.videoHeight / window.innerHeight;
+
+      outputCanvas.width = rectWidth * scaleX;
+      outputCanvas.height = rectHeight * scaleY;
+
+      const ctx = outputCanvas.getContext('2d');
+      ctx.drawImage(
+        video,
+        rectLeft * scaleX, rectTop * scaleY, rectWidth * scaleX, rectHeight * scaleY, // Source crop
+        0, 0, outputCanvas.width, outputCanvas.height // Canvas target
+      );
+
+      downloadBtn.style.display = 'inline-block';
     }
 
-    // 4. Instant Download Action
-    function downloadSnapshot() {
+    // 5. Save Captured PNG
+    function downloadSnap() {
       const link = document.createElement('a');
-      link.download = `Snapshot_${Date.now()}.png`;
-      link.href = canvas.toDataURL('image/png');
+      link.download = `RegionSnap_${Date.now()}.png`;
+      link.href = outputCanvas.toDataURL('image/png');
       link.click();
     }
   </script>
