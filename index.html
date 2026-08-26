@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Direct Web Snapshot Tool</title>
+  <!-- Load html2canvas engine for direct DOM rendering -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <style>
+    body { font-family: sans-serif; background: #121212; color: white; padding: 20px; text-align: center; }
+    .controls { margin-bottom: 20px; }
+    button { padding: 12px 24px; font-size: 16px; margin: 10px; cursor: pointer; border-radius: 6px; border: none; font-weight: bold; }
+    .btn-snap { background: #28a745; color: white; }
+    .btn-stream { background: #007bff; color: white; }
+    #captureArea { border: 2px dashed #444; padding: 20px; background: #1e1e1e; border-radius: 8px; margin: 0 auto; max-width: 900px; }
+    video { width: 100%; border: 1px solid #555; border-radius: 6px; }
+  </style>
+</head>
+<body>
+
+  <h2>Web Screen Snapshot Engine</h2>
+
+  <div class="controls">
+    <button class="btn-snap" onclick="takeDirectDomSnap()">1. DIRECT DOM SNAP (No Popup Needed)</button>
+    <button class="btn-stream" onclick="initScreenStream()">2. ENABLE CONTINUOUS SCREEN SCAN</button>
+  </div>
+
+  <div id="captureArea">
+    <h3>Live Content Viewer</h3>
+    <video id="screenVideo" autoplay muted></video>
+  </div>
+
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <script>
+    let video = document.getElementById('screenVideo');
+    let streamActive = false;
+
+    // METHOD A: Direct DOM Snapshot (Bypasses all permission popups)
+    function takeDirectDomSnap() {
+      html2canvas(document.body).then(canvas => {
+        let link = document.createElement('a');
+        link.download = `DirectSnap_${Date.now()}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      }).catch(err => {
+        alert("DOM Snapshot failed: " + err);
+      });
+    }
+
+    // METHOD B: Robust Screen Capture with Auto-Recovery
+    async function initScreenStream() {
+      try {
+        let stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { displaySurface: "monitor" }
+        });
+        video.srcObject = stream;
+        streamActive = true;
+        alert("Screen connection active! You can now capture frames.");
+      } catch (err) {
+        if (err.name === 'NotAllowedError') {
+          alert("Selection Cancelled: Please click 'Select Screen' again and choose a screen window from the popup.");
+        } else {
+          alert("Security restriction: Ensure you are accessing this via GitHub HTTPS link (https://).");
+        }
+      }
+    }
+  </script>
+</body>
+</html>
